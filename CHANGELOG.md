@@ -105,3 +105,23 @@ The harness doesn't assert a minimum; it reports. The trajectory across CHANGELO
 **Next:** Fact evolution — supersession-aware extraction so the Stripe→Notion probe passes.
 
 **Bug found and fixed during this phase:** SQLAlchemy's default `Enum` mapping uses Python enum _names_ (`FACT`) as Postgres labels, not _values_ (`fact`). The Phase 1 schema silently created the enum with uppercase labels, and the bug stayed hidden until Phase 4 because Phase 2's writes used the ORM (which translates correctly), while Phase 4's first raw-SQL query against `type IN ('fact', 'preference')` failed at the asyncpg layer. Fix: `Enum(MemoryType, values_callable=lambda x: [e.value for e in x])` plus `type::text IN (...)` in raw SQL for defense in depth. Noted because the failure mode (ORM works, raw SQL doesn't) is exactly the kind of asymmetric bug that survives unit tests targeting only one access path.
+
+## v5 — Same-session continuity
+
+**What:** Added a third section to `/recall` — "Recent in this session" — populated from the most recent turns in the given `session_id`. Each turn rendered as a one-line summary using its first user message (truncated to 100 chars, prefixed with date). Per-section budget split is now 40/45/15 (stable / recall / session). Score steady at 6/7.
+
+**Why:** The spec calls out same-session continuity in its example response and the eval has a "current session" dimension. Without this, a user mid-conversation asking "and what about that thing I mentioned earlier?" gets no answer because nothing in the static memory store matches "that thing".
+
+**Why deterministic summaries, not LLM:** A `/recall` LLM call would add ~1.5s and create a failure path the spec wouldn't catch on a happy path. Recent-session turns are short and recent — truncating the first user message is a good enough summary at zero latency cost. If quality is a problem later, this is the natural place to add a small extraction-time summary column on `turns` rather than computing on read.
+
+**Priority logic when budget tight (40/45/15):**
+
+- Stable facts get the largest _floor_ but capped at 40% so they can't crowd out query-relevant retrieval.
+- Recall gets the largest _flex_ allocation because it's the most query-dependent.
+- Session continuity gets the smallest slice — recent turns are also visible to the agent through its own context window in most architectures, so we treat this as redundant-but-helpful rather than primary.
+
+**Tradeoff:** Two-line user messages get truncated. Acceptable; the agent has the full session in its context if it needs detail.
+
+**Next:** Fact evolution and supersession — fixes the one remaining failing probe.
+
+**Bug fix during phase:** `_summarize_turn` initially returned no summaries because the JSONB `messages` column was occasionally surfaced as a raw JSON string instead of a parsed list — a known asymmetry in the asyncpg/SQLAlchemy path. Added an `isinstance(messages, str)` guard with `json.loads` fallback. Defensive but cheap; better than re-debugging this once per environment.
