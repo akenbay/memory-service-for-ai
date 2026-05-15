@@ -58,3 +58,22 @@
 **Verified:** Ingested a multi-fact turn ("moved from NYC to Berlin for a PM role at Notion, dog Biscuit, vegetarian") and `/users/alice/memories` returned 5 typed records with appropriate keys and high confidence.
 
 **Next:** Build the recall-quality fixture so I can measure every change from here on.
+
+## v3 — Recall-quality fixture and scoring harness
+
+**What:** Built four scenarios in `fixtures/` covering the eval's explicit categories — basic recall, fact evolution, implicit + correction, noise resistance. Each scenario ships scripted turns plus probe queries with expected (and forbidden) terms. `tests/test_recall_quality.py` ingests them, runs the probes against `/recall`, and prints a per-scenario + overall pass rate. Reruns are deterministic — DELETE /users between runs.
+
+**Baseline:** 1/7 (14%). The only passing probe is noise resistance, which trivially passes today because `/recall` returns empty context (no forbidden terms can leak). The other six fail because recall is still stubbed.
+
+**Why now:** With no fixture, every "I improved recall" claim later in the CHANGELOG would be unmeasurable. From v4 onward each entry will quote a before/after score against these scenarios.
+
+**Scoring approach:**
+
+- `expected_any`: at least one keyword must appear in context (OR).
+- `expected_not`: stale-fact detection — any match fails the probe.
+- `expected_not_strict`: even substring match fails (used for the Biscuit → Biscotti correction).
+- Noise scenarios use `forbidden_terms` — empty/irrelevant context passes.
+
+The harness doesn't assert a minimum; it reports. The trajectory across CHANGELOG entries is the signal.
+
+**Next:** Hybrid recall (vector + BM25 + RRF) — should move the baseline meaningfully.
