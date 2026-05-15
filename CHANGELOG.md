@@ -125,3 +125,34 @@ The harness doesn't assert a minimum; it reports. The trajectory across CHANGELO
 **Next:** Fact evolution and supersession — fixes the one remaining failing probe.
 
 **Bug fix during phase:** `_summarize_turn` initially returned no summaries because the JSONB `messages` column was occasionally surfaced as a raw JSON string instead of a parsed list — a known asymmetry in the asyncpg/SQLAlchemy path. Added an `isinstance(messages, str)` guard with `json.loads` fallback. Defensive but cheap; better than re-debugging this once per environment.
+
+## v6 — Fact evolution and supersession
+
+**What:** New memories are now classified against existing same-key memories before insertion. Three relationships: identical (skip — bump updated_at), contradictory (insert with `supersedes=old.id`, mark old `active=false`), additive (insert independently). Classification is a hybrid: ~12 known single-valued keys short-circuit to contradictory without an LLM call; everything else uses a small classifier prompt at temperature 0.0. All supersession logic runs in the same transaction as the new memory insert — no half-states possible.
+
+**Result:** Fixture **6/7 (86%) → 7/7 (100%)**. The Stripe → Notion probe now passes: `/recall` mentions Notion only, and `/users/{id}/memories` shows the chain (new `active=true` with `supersedes` pointing at the old; old `active=false`).
+
+**Design choices:**
+
+- **Three-way classification, not two.** Binary "contradicts or not" would either over-supersede (collapse two hobbies into one) or under-supersede (leave stale jobs active). The additive case is what lets multi-value keys (skills, languages, hobbies, pets) coexist correctly.
+
+- **Single-valued allowlist.** Keys like `current_location`, `employment`, `age` are deterministically contradictory when values differ — no LLM call needed. Saves ~500ms on the most common updates. List is small and conservative; ambiguous keys fall through to the LLM path.
+
+- **Default to CONTRADICTORY on judge failure.** If the LLM is unavailable, we mark old as inactive and insert new. Worst case: a stale fact gets temporarily demoted from `/recall` but is still recoverable in `/users/{id}/memories`. The reverse (default ADDITIVE) would silently keep two truths active and pollute downstream agent context — strictly worse failure mode.
+
+- **Chain depth 1.** When a new memory contradicts, it points at _the most recent_ active same-key memory. Earlier ones in that key's history are already inactive (they were superseded when their successor was inserted). No need to walk the full chain on every write.
+
+- **Soft delete, not hard.** Superseded memories remain in the table with `active=false`. They're visible in `/users/{id}/memories` (history is preserved for inspection and audit), invisible in `/recall` and `/search` (we never surface stale truth to the agent).
+
+**Opinion arcs — what works and what doesn't.**
+The spec calls out the case where opinions evolve gradually: "love TypeScript" → "TypeScript generics are annoying" → "TypeScript is fine for big projects, but I'd use Python for scripts." This implementation treats each as a supersession step — a chain of opinion memories with the newest active. **What's lost: the trajectory.** A reviewer asking "how has the user's view of TypeScript changed?" can reconstruct the chain from `/users/{id}/memories` but the granularity is coarse — the assistant doesn't get a "sentiment trajectory" signal in `/recall`. A richer model would add a `sentiment_delta` column or a typed `opinion_arc` table. Deferred; documented.
+
+**What I deliberately don't try to do:**
+
+- Cross-key correlation ("works at Notion" implies a location change). Each key is judged independently.
+- Confidence-weighted resolution. If a high-confidence old fact would be superseded by a low-confidence new one, we still supersede. Could add a confidence guard — would require the new fact to clear a threshold relative to the old — but in practice extraction confidence is bunched around 0.85–0.95 and the guard would mostly be a no-op.
+- Time-decay on events. An `event` memory from a year ago is still "active" by our model. Fine for our purposes; the assistant decides whether old events are relevant.
+
+**Bug squashed during this phase:** A first draft of the loop tried to set `Memory.active = False` directly on ORM instances after fetching them in a separate query, but those instances weren't attached to the current session, so the update silently no-op'd. Fixed by switching to a raw `UPDATE ... WHERE id IN (...)` against the deactivation list. Worth a note because "the ORM looked like it worked but didn't persist" is the kind of bug that survives a unit test if the test reads through a stale session.
+
+**Next:** Multi-hop recall and query rewriting.
