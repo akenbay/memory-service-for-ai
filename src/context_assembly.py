@@ -153,8 +153,13 @@ RECALL_BUDGET_FRAC = 0.45
 
 
 def _summarize_turn(turn: dict) -> str | None:
-    """One-line summary: '[YYYY-MM-DD] first user message, truncated.'"""
     messages = turn.get("messages") or []
+    if isinstance(messages, str):
+        import json
+        try:
+            messages = json.loads(messages)
+        except json.JSONDecodeError:
+            return None
     user_msg = next(
         (m.get("content", "") for m in messages if m.get("role") == "user"),
         None,

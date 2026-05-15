@@ -18,6 +18,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - ./src:/app/src
       - ./tests:/app/tests
       - ./fixtures:/app/fixtures
     environment:
