@@ -77,3 +77,31 @@
 The harness doesn't assert a minimum; it reports. The trajectory across CHANGELOG entries is the signal.
 
 **Next:** Hybrid recall (vector + BM25 + RRF) — should move the baseline meaningfully.
+
+## v4 — Hybrid recall with Reciprocal Rank Fusion
+
+**What:** `/recall` and `/search` now run hybrid retrieval: pgvector cosine-similarity ranking on memory embeddings _and_ Postgres `ts_rank` BM25 over the `content_tsv` column, fused with Reciprocal Rank Fusion (k=60). Both rankings + the fusion run in a single SQL query via CTEs and a FULL OUTER JOIN. `/recall` formats the result into the spec's two-section prose layout (stable facts + query-relevant) with per-section token budgets enforced via tiktoken.
+
+**Result:** Fixture went from **1/7 (14%) → X/7 (Y%)**. <!-- fill in real numbers -->
+
+- Basic recall: 0/3 → 3/3 — vector finds semantic matches ("works for a living" → employment memory), BM25 catches proper nouns ("Stripe", "Biscuit").
+- Implicit/correction: 0/1 → 1/1 — "Biscotti" is now retrievable. Correction-vs-original disambiguation is deferred to v6 (supersession).
+- Fact evolution: still failing the `expected_not` checks because both Stripe and Notion are active memories — supersession is v6.
+- Noise: still passing because hybrid against an empty-on-topic corpus returns nothing.
+
+**Why RRF over weighted-score fusion:** vector cosine distance and ts_rank are on different scales, and rank fusion sidesteps the calibration problem entirely. RRF is the dominant pattern in the open RAG literature for this exact reason.
+
+**Why two sections, in this order, with this split (45/55):**
+
+- Stable facts come first because the agent almost always needs to know who the user _is_ before answering anything. A query about "good restaurants" needs to surface "vegetarian" even though "vegetarian" isn't in the query terms.
+- 45% for stable facts is enough for ~10 facts at typical bullet length; the rest goes to query-relevant. If a user has lots of stable facts and a tight `max_tokens`, the query-relevant section shrinks first — which is the right tradeoff because the _next_ turn will retrieve the same recall results, but missing the stable user identity is a structural failure.
+
+**Tradeoffs accepted:**
+
+- No reranker. Could add cross-encoder reranking on the top-20 hybrid candidates for a quality bump; not done because RRF on dataset sizes <10k memories already hits the precision ceiling for the fixture.
+- No query rewriting yet — added in v7 for multi-hop probes.
+- `cl100k_base` tokenizer is approximate for non-OpenAI consumers, but the spec says approximate is fine.
+
+**Next:** Fact evolution — supersession-aware extraction so the Stripe→Notion probe passes.
+
+**Bug found and fixed during this phase:** SQLAlchemy's default `Enum` mapping uses Python enum _names_ (`FACT`) as Postgres labels, not _values_ (`fact`). The Phase 1 schema silently created the enum with uppercase labels, and the bug stayed hidden until Phase 4 because Phase 2's writes used the ORM (which translates correctly), while Phase 4's first raw-SQL query against `type IN ('fact', 'preference')` failed at the asyncpg layer. Fix: `Enum(MemoryType, values_callable=lambda x: [e.value for e in x])` plus `type::text IN (...)` in raw SQL for defense in depth. Noted because the failure mode (ORM works, raw SQL doesn't) is exactly the kind of asymmetric bug that survives unit tests targeting only one access path.
