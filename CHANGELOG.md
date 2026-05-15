@@ -156,3 +156,40 @@ The spec calls out the case where opinions evolve gradually: "love TypeScript" �
 **Bug squashed during this phase:** A first draft of the loop tried to set `Memory.active = False` directly on ORM instances after fetching them in a separate query, but those instances weren't attached to the current session, so the update silently no-op'd. Fixed by switching to a raw `UPDATE ... WHERE id IN (...)` against the deactivation list. Worth a note because "the ORM looked like it worked but didn't persist" is the kind of bug that survives a unit test if the test reads through a stale session.
 
 **Next:** Multi-hop recall and query rewriting.
+
+## v7 — README and design defense
+
+**What:** Wrote `README.md` as the primary human-review artifact. Ten sections in a fixed order: Quickstart, Architecture (ASCII diagram + request flow), Backing store choice, Extraction pipeline, Recall strategy, Fact evolution, Tradeoffs, Failure modes, Running tests, Repository layout.
+
+**Why each section is there:**
+
+- **Quickstart first.** A reviewer should be able to run the service in under a minute before reading anything else. Failing the "could a stranger boot this in 60s" test is a failure mode no amount of design defense recovers from.
+- **Architecture diagram before any prose.** The ASCII diagram is what makes the rest of the README readable — it gives the reader the mental model of "two paths through the system, one heavy and transactional, one read-only and assembled" before I start justifying choices.
+- **Backing store + alternatives rejected.** This is the one design choice that has the biggest reviewer-impact — get this wrong and every downstream choice looks worse. Naming the alternatives (Qdrant, SQLite, Mongo, Redis) and what specifically I rejected each for is what makes the choice defensible rather than asserted.
+- **Extraction pipeline section explicitly lists what is NOT extracted.** Telling a reviewer "I deliberately don't extract assistant filler, temporal qualifiers in structured form" is more credible than only listing what works.
+- **Failure modes table.** Every reviewer asks "what happens when X breaks?" — having the answers in one place (no API key, OpenAI down, embedding fails, malformed input, restart mid-write) preempts the question. Each row is a behavior I verified or that follows from a try/except in the code.
+- **Tradeoffs section.** Optimized for / given up on. Naming what was deliberately not built is what separates "didn't have time" from "decided not to" — multi-hop, cross-encoder reranking, async ingestion, sentiment trajectories.
+
+**Result:** ~380-line README. Every claim ties back to a file path (mostly with line numbers) so a reviewer can verify rather than trust.
+
+**Tradeoff:** The README has some redundancy with CHANGELOG (e.g., both defend the 40/45/15 split). Acceptable — different reader, different entry point. The CHANGELOG is the design history; the README is the snapshot.
+
+## v8 — Required contract tests
+
+**What:** Added `tests/test_contract.py` covering the spec §7 contract requirements:
+
+- **`test_contract_roundtrip`** — `POST /turns` → 201 + UUID-shaped `id`; `POST /recall` → 200 with `{context: str, citations: list[{turn_id, score, snippet}]}`; `GET /users/{id}/memories` → 200 with `{memories: list}`; `DELETE /users/{id}` → 204; post-delete read shows empty memories. Validates every response shape, not just the status codes.
+- **`test_restart_persistence`** (marked `@pytest.mark.slow`) — writes a turn, runs `docker compose restart api`, polls `/health` until ready, re-reads memories and asserts the exact same memory ids survive. Verifies the named-volume claim from v0 isn't aspirational. Auto-skips when run from inside the container (no `docker` CLI on PATH) so it doesn't break the in-container test run.
+- **`test_concurrent_sessions`** — writes facts for two distinct `user_id`s with deliberately distinguishable content (Alice/Stripe vs Bob/Datadog), then asserts neither user's stored memories nor `/recall` output contains the other's terms. Verifies multi-tenancy isolation at both the storage and retrieval layers.
+- **`test_malformed_input`** — POSTs four bad payloads: invalid JSON body (expects 4xx), missing required fields (expects 422), unicode+emoji content (expects 201 — must succeed, not fail), and a ~1MB oversized payload (expects <500 — accepted or rejected, but never a crash). The oversized case is the important one: it specifically verifies that extraction's try/except shields the server from OpenAI errors on huge inputs.
+
+**Design choices:**
+
+- **Why marked `slow` and auto-skipped.** The restart test fundamentally can't run from inside the api container (the container being restarted *is* the test runner, and `docker` isn't on the container's PATH). The `shutil.which("docker") is None` skip makes `docker compose exec api pytest tests/ -s` show it as skipped (1 skipped, all others pass) and the test still runnable from the host with `pytest tests/test_contract.py -m slow`.
+- **Why sync `httpx.Client`, not async.** Matches the existing `tests/test_recall_quality.py` pattern. No event-loop ceremony, no `pytest-asyncio` config drift, and the tests aren't I/O-bound enough that async would win anything.
+- **Why every test has a `try/finally` that DELETEs the user.** Contract tests must be re-runnable on a dirty database; cleanup-on-success isn't enough.
+- **Concurrent-sessions test skips when extraction returns []** — if `OPENAI_API_KEY` is unset the assertion would pass trivially on empty memory lists, which would be a falsely-passing test. Skipping with a clear reason is honest.
+
+**Result:** `docker compose exec api pytest tests/ -s` reports `4 passed, 1 skipped` in ~32s. The fixture is still 7/7.
+
+**Tradeoff:** A `conftest.py` was added to register the `slow` marker (silences `PytestUnknownMarkWarning`). One-line file, no new dependencies.
