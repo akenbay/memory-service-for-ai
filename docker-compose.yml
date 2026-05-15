@@ -17,6 +17,9 @@ services:
     build: .
     ports:
       - "8080:8080"
+    volumes:
+      - ./tests:/app/tests
+      - ./fixtures:/app/fixtures
     environment:
       DATABASE_URL: postgresql+asyncpg://memory:memory@db:5432/memory
       OPENAI_API_KEY: ${OPENAI_API_KEY}

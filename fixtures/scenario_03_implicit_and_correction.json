@@ -1,0 +1,30 @@
+{
+  "name": "implicit_and_correction",
+  "description": "Implicit fact extraction and mid-conversation corrections.",
+  "user_id": "fixture-user-implicit",
+  "turns": [
+    {
+      "session_id": "imp-s1",
+      "messages": [
+        {"role": "user", "content": "Just got back from walking Biscuit in Tiergarten. Beautiful morning."},
+        {"role": "assistant", "content": "Sounds lovely!"}
+      ],
+      "timestamp": "2025-03-12T08:30:00Z"
+    },
+    {
+      "session_id": "imp-s2",
+      "messages": [
+        {"role": "user", "content": "Oh, actually I should mention — his name is Biscotti, not Biscuit. I always typo it."},
+        {"role": "assistant", "content": "Got it, Biscotti!"}
+      ],
+      "timestamp": "2025-03-12T08:35:00Z"
+    }
+  ],
+  "probes": [
+    {
+      "query": "What is the user's pet's name?",
+      "session_id": "imp-s3",
+      "expected_any": ["Biscotti"]
+    }
+  ]
+}

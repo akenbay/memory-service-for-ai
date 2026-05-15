@@ -1,0 +1,40 @@
+{
+  "name": "basic_recall",
+  "description": "Single fact stated and recalled by direct query.",
+  "user_id": "fixture-user-basic",
+  "turns": [
+    {
+      "session_id": "basic-s1",
+      "messages": [
+        {"role": "user", "content": "Hi! Just wanted to mention I have a Border Collie named Biscuit. He's three years old."},
+        {"role": "assistant", "content": "Biscuit sounds wonderful! Border Collies are so smart."}
+      ],
+      "timestamp": "2025-03-10T09:00:00Z"
+    },
+    {
+      "session_id": "basic-s1",
+      "messages": [
+        {"role": "user", "content": "Yeah, I work as a backend engineer at Stripe, mostly on payments infra."},
+        {"role": "assistant", "content": "That's a great team to be on."}
+      ],
+      "timestamp": "2025-03-10T09:05:00Z"
+    }
+  ],
+  "probes": [
+    {
+      "query": "What pet does the user have?",
+      "session_id": "basic-s2",
+      "expected_any": ["Biscuit", "Border Collie", "dog"]
+    },
+    {
+      "query": "Where does the user work?",
+      "session_id": "basic-s2",
+      "expected_any": ["Stripe"]
+    },
+    {
+      "query": "What does the user do for a living?",
+      "session_id": "basic-s2",
+      "expected_any": ["engineer", "Stripe", "backend"]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "noise_resistance",
+  "description": "Query about a topic never mentioned; service must return empty or non-hallucinated context.",
+  "user_id": "fixture-user-noise",
+  "turns": [
+    {
+      "session_id": "noise-s1",
+      "messages": [
+        {"role": "user", "content": "I love hiking on weekends, especially the trails near Big Sur."},
+        {"role": "assistant", "content": "Big Sur is gorgeous."}
+      ],
+      "timestamp": "2025-03-01T11:00:00Z"
+    }
+  ],
+  "probes": [
+    {
+      "query": "What is the user's favorite cryptocurrency?",
+      "session_id": "noise-s2",
+      "expect_empty_or_irrelevant": true,
+      "forbidden_terms": ["Bitcoin", "Ethereum", "BTC", "ETH", "crypto"]
+    }
+  ]
+}

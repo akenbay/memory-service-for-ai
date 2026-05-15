@@ -1,0 +1,36 @@
+{
+  "name": "fact_evolution",
+  "description": "User's employment changes; recall must return current job, history must be preserved.",
+  "user_id": "fixture-user-evolution",
+  "turns": [
+    {
+      "session_id": "evo-s1",
+      "messages": [
+        {"role": "user", "content": "I work at Stripe on the payments team. Been there about three years."},
+        {"role": "assistant", "content": "Nice, payments is interesting."}
+      ],
+      "timestamp": "2025-01-15T10:00:00Z"
+    },
+    {
+      "session_id": "evo-s2",
+      "messages": [
+        {"role": "user", "content": "Quick update — I just started at Notion last week as a PM. Big career switch."},
+        {"role": "assistant", "content": "Congrats on the new role!"}
+      ],
+      "timestamp": "2025-03-20T14:00:00Z"
+    }
+  ],
+  "probes": [
+    {
+      "query": "Where does the user currently work?",
+      "session_id": "evo-s3",
+      "expected_any": ["Notion"],
+      "expected_not": ["currently at Stripe", "works at Stripe"]
+    },
+    {
+      "query": "What is the user's job?",
+      "session_id": "evo-s3",
+      "expected_any": ["PM", "product manager", "Notion"]
+    }
+  ]
+}
