@@ -17,6 +17,7 @@ from sqlalchemy import text as sql_text
 from src.recall import hybrid_recall, get_stable_facts
 from src.context_assembly import assemble_context, Citation as AsmCitation
 
+from src.recall import hybrid_recall, get_stable_facts, get_recent_session_turns
 
 
 @asynccontextmanager
@@ -164,15 +165,17 @@ async def write_turn(req: TurnRequest):
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
     async with session_scope() as session:
-        # Section 1: stable user facts.
         stable = await get_stable_facts(session, req.user_id, limit=20)
-
-        # Section 2: hybrid retrieval against the query.
         recalled = await hybrid_recall(
             session, req.query, req.user_id, limit=10,
         )
+        recent_turns = await get_recent_session_turns(
+            session, req.session_id, limit=5,
+        )
 
-        assembled = assemble_context(stable, recalled, req.max_tokens)
+        assembled = assemble_context(
+            stable, recalled, recent_turns, req.max_tokens,
+        )
 
     return RecallResponse(
         context=assembled.context,

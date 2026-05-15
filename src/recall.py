@@ -189,3 +189,34 @@ async def get_stable_facts(
         )
         for row in rows
     ]
+
+async def get_recent_session_turns(
+    session: AsyncSession,
+    session_id: str,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    Return the most recent turns from this session as lightweight dicts.
+    Used to provide same-session continuity in /recall's third section.
+    """
+    if not session_id:
+        return []
+
+    sql = sql_text("""
+        SELECT id, messages, timestamp
+        FROM turns
+        WHERE session_id = :sid
+        ORDER BY timestamp DESC
+        LIMIT :limit
+    """)
+    result = await session.execute(sql, {"sid": session_id, "limit": limit})
+    rows = result.mappings().all()
+
+    return [
+        {
+            "id": row["id"],
+            "messages": row["messages"],
+            "timestamp": row["timestamp"].isoformat(),
+        }
+        for row in rows
+    ]
