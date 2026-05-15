@@ -10,6 +10,10 @@ from sqlalchemy import select, delete
 from src.db import init_db, session_scope
 from src.models import Turn, Memory, MemoryType
 
+from src.extraction import extract_memories
+from src.embeddings import embed_batch
+from sqlalchemy import text as sql_text
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -105,6 +109,7 @@ async def health():
 @app.post("/turns", response_model=TurnResponse, status_code=status.HTTP_201_CREATED)
 async def write_turn(req: TurnRequest):
     async with session_scope() as session:
+        # 1. Persist the raw turn.
         turn = Turn(
             session_id=req.session_id,
             user_id=req.user_id,
@@ -116,7 +121,39 @@ async def write_turn(req: TurnRequest):
         await session.flush()  # populate turn.id
         turn_id = turn.id
 
-        # Extraction comes in Phase 2 — for now, persist only.
+        # 2. Extract structured memories from the turn.
+        extracted = await extract_memories(turn.messages)
+
+        if extracted:
+            # 3. Batch-embed all memory values in one API call.
+            embeddings = await embed_batch([m.value for m in extracted])
+
+            # 4. Persist memories with embeddings.
+            for em, vec in zip(extracted, embeddings):
+                mem = Memory(
+                    user_id=req.user_id,
+                    session_id=req.session_id,
+                    source_turn_id=turn_id,
+                    type=em.type,
+                    key=em.key,
+                    value=em.value,
+                    evidence=em.evidence,
+                    confidence=em.confidence,
+                    embedding=vec,
+                )
+                session.add(mem)
+
+            await session.flush()
+
+            # 5. Populate the tsvector column for FTS. Postgres-side computation.
+            await session.execute(
+                sql_text(
+                    "UPDATE memories SET content_tsv = "
+                    "to_tsvector('english', coalesce(key, '') || ' ' || value) "
+                    "WHERE source_turn_id = :tid AND content_tsv IS NULL"
+                ),
+                {"tid": turn_id},
+            )
 
     return TurnResponse(id=turn_id)
 
