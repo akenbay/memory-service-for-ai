@@ -61,7 +61,10 @@ class Memory(Base):
     )
     source_turn: Mapped["Turn"] = relationship(back_populates="memories")
 
-    type: Mapped[MemoryType] = mapped_column(Enum(MemoryType), nullable=False)
+    type: Mapped[MemoryType] = mapped_column(
+    Enum(MemoryType, values_callable=lambda x: [e.value for e in x]),
+    nullable=False,
+)
     key: Mapped[str] = mapped_column(String, nullable=False, index=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
